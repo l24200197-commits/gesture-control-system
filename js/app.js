@@ -49,6 +49,22 @@ async function startCamera() {
 }
 
 /* ===========================
+   DETECCIÓN DE PUÑO
+=========================== */
+function isFist(landmarks) {
+
+    const fingerDown = (tip, pip) => landmarks[tip].y > landmarks[pip].y;
+
+    const thumbDown  = landmarks[4].y > landmarks[3].y;
+    const indexDown  = fingerDown(8, 6);
+    const middleDown = fingerDown(12, 10);
+    const ringDown   = fingerDown(16, 14);
+    const pinkyDown  = fingerDown(20, 18);
+
+    return thumbDown && indexDown && middleDown && ringDown && pinkyDown;
+}
+
+/* ===========================
    DETECCIÓN DE POSTURAS
 =========================== */
 function detectGesture(landmarks) {
@@ -90,7 +106,7 @@ function detectGesture(landmarks) {
 }
 
 /* ===========================
-   DETECCIÓN DE 360°
+   DETECCIÓN DE 360° (SOLO CON PUÑO)
 =========================== */
 function detectCircularMotion() {
 
@@ -173,22 +189,26 @@ async function initHands() {
 
             const indexTip = landmarks[8];
 
-            indexPath.push({ x: indexTip.x, y: indexTip.y });
+            // SOLO guardar trayectoria si hay puño
+            if (isFist(landmarks)) {
+                indexPath.push({ x: indexTip.x, y: indexTip.y });
 
-            if (indexPath.length > MAX_PATH)
-                indexPath.shift();
+                if (indexPath.length > MAX_PATH)
+                    indexPath.shift();
 
-            // Detectar 360 primero
-            const circleGesture = detectCircularMotion();
+                const circleGesture = detectCircularMotion();
 
-            if (circleGesture) {
-                lastGestureTime = Date.now();
-                suspended = false;
-                statusText.innerText = "Activo";
-                commandText.innerText = circleGesture;
-                highlightGesture(circleGesture);
-                canvasCtx.restore();
-                return;
+                if (circleGesture) {
+                    lastGestureTime = Date.now();
+                    suspended = false;
+                    statusText.innerText = "Activo";
+                    commandText.innerText = circleGesture;
+                    highlightGesture(circleGesture);
+                    canvasCtx.restore();
+                    return;
+                }
+            } else {
+                indexPath = [];
             }
 
             const gesture = detectGesture(landmarks);
@@ -205,7 +225,6 @@ async function initHands() {
             }
         }
 
-        // Suspensión automática
         if (Date.now() - lastGestureTime > SUSPEND_TIME) {
             suspended = true;
             statusText.innerText = "Modo suspendido";
