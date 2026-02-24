@@ -131,7 +131,7 @@ async function initHands() {
             const handLabel = results.multiHandedness[0].label;
 
             drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS,
-                { color: "#00FF00", lineWidth: 3 });
+                { color: "#00FF00", lineWidth: 1 });
 
             drawLandmarks(canvasCtx, landmarks,
                 { color: "#FF0000", lineWidth: 2 });
