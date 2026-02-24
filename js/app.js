@@ -10,10 +10,9 @@ let suspended = false;
 const SUSPEND_TIME = 5000;
 
 /* ===========================
-   VARIABLES PARA 360°
+   VARIABLES PARA DETECTAR DESPLAZAMIENTO
 =========================== */
-let indexPath = [];
-const MAX_PATH = 40;
+let previousX = null;
 
 /* ===========================
    RESALTAR GESTO EN PANEL
@@ -49,23 +48,7 @@ async function startCamera() {
 }
 
 /* ===========================
-   DETECCIÓN DE PUÑO
-=========================== */
-function isFist(landmarks) {
-
-    const fingerDown = (tip, pip) => landmarks[tip].y > landmarks[pip].y;
-
-    const thumbDown  = landmarks[4].y > landmarks[3].y;
-    const indexDown  = fingerDown(8, 6);
-    const middleDown = fingerDown(12, 10);
-    const ringDown   = fingerDown(16, 14);
-    const pinkyDown  = fingerDown(20, 18);
-
-    return thumbDown && indexDown && middleDown && ringDown && pinkyDown;
-}
-
-/* ===========================
-   DETECCIÓN DE POSTURAS
+   DETECCIÓN DE GESTOS
 =========================== */
 function detectGesture(landmarks) {
 
@@ -80,74 +63,69 @@ function detectGesture(landmarks) {
     const wrist = landmarks[0];
     const indexTip = landmarks[8];
 
+    // 👍 Avanzar
     if (thumbUp && !indexUp && !middleUp && !ringUp && !pinkyUp)
         return "Avanzar";
 
+    // ✋ Detener
     if (thumbUp && indexUp && middleUp && ringUp && pinkyUp)
         return "Detener";
 
+    // 👉 Vuelta derecha
     if (indexUp && !middleUp && !ringUp && !pinkyUp &&
         indexTip.x > wrist.x + 0.15)
         return "Vuelta derecha";
 
+    // 👈 Vuelta izquierda
     if (indexUp && !middleUp && !ringUp && !pinkyUp &&
         indexTip.x < wrist.x - 0.15)
         return "Vuelta izquierda";
 
+    // ✌️ 90° derecha
     if (indexUp && middleUp && !ringUp && !pinkyUp &&
         indexTip.x > wrist.x)
         return "90° derecha";
 
+    // ✌️ 90° izquierda
     if (indexUp && middleUp && !ringUp && !pinkyUp &&
         indexTip.x < wrist.x)
         return "90° izquierda";
 
-    return "Orden no reconocida";
+    return null;
 }
 
 /* ===========================
-   DETECCIÓN DE 360° (SOLO CON PUÑO)
+   DETECTAR 360 POR DESPLAZAMIENTO
 =========================== */
-function detectCircularMotion() {
+function detect360(landmarks) {
 
-    if (indexPath.length < 20) return null;
+    const wrist = landmarks[0];
 
-    let cx = 0, cy = 0;
-
-    indexPath.forEach(p => {
-        cx += p.x;
-        cy += p.y;
-    });
-
-    cx /= indexPath.length;
-    cy /= indexPath.length;
-
-    let totalAngle = 0;
-
-    for (let i = 1; i < indexPath.length; i++) {
-
-        const prev = indexPath[i - 1];
-        const curr = indexPath[i];
-
-        const angle1 = Math.atan2(prev.y - cy, prev.x - cx);
-        const angle2 = Math.atan2(curr.y - cy, curr.x - cx);
-
-        let delta = angle2 - angle1;
-
-        if (delta > Math.PI) delta -= 2 * Math.PI;
-        if (delta < -Math.PI) delta += 2 * Math.PI;
-
-        totalAngle += delta;
+    if (previousX === null) {
+        previousX = wrist.x;
+        return null;
     }
 
-    if (Math.abs(totalAngle) > 5.5) {
+    const deltaX = wrist.x - previousX;
+    previousX = wrist.x;
 
-        indexPath = [];
+    const fingerUp = (tip, pip) => landmarks[tip].y < landmarks[pip].y;
 
-        if (totalAngle > 0)
-            return "360° izquierda";
-        else
+    const thumbUp  = landmarks[4].y < landmarks[3].y;
+    const indexUp  = fingerUp(8, 6);
+    const middleUp = fingerUp(12, 10);
+    const ringUp   = fingerUp(16, 14);
+    const pinkyUp  = fingerUp(20, 18);
+
+    const openHand = thumbUp && indexUp && middleUp && ringUp && pinkyUp;
+
+    if (openHand) {
+
+        if (deltaX > 0.08)
             return "360° derecha";
+
+        if (deltaX < -0.08)
+            return "360° izquierda";
     }
 
     return null;
@@ -187,39 +165,16 @@ async function initHands() {
             drawLandmarks(canvasCtx, landmarks,
                 { color: "#FF0000", lineWidth: 2 });
 
-            const indexTip = landmarks[8];
+            let gesture = detectGesture(landmarks);
 
-            // SOLO guardar trayectoria si hay puño
-            if (isFist(landmarks)) {
-                indexPath.push({ x: indexTip.x, y: indexTip.y });
-
-                if (indexPath.length > MAX_PATH)
-                    indexPath.shift();
-
-                const circleGesture = detectCircularMotion();
-
-                if (circleGesture) {
-                    lastGestureTime = Date.now();
-                    suspended = false;
-                    statusText.innerText = "Activo";
-                    commandText.innerText = circleGesture;
-                    highlightGesture(circleGesture);
-                    canvasCtx.restore();
-                    return;
-                }
-            } else {
-                indexPath = [];
+            if (!gesture) {
+                gesture = detect360(landmarks);
             }
 
-            const gesture = detectGesture(landmarks);
-
-            if (gesture !== "Orden no reconocida") {
+            if (gesture) {
                 lastGestureTime = Date.now();
                 suspended = false;
                 statusText.innerText = "Activo";
-            }
-
-            if (!suspended) {
                 commandText.innerText = gesture;
                 highlightGesture(gesture);
             }
@@ -229,8 +184,8 @@ async function initHands() {
             suspended = true;
             statusText.innerText = "Modo suspendido";
             commandText.innerText = "Esperando gesto...";
-            indexPath = [];
             highlightGesture(null);
+            previousX = null;
         }
 
         canvasCtx.restore();
@@ -247,9 +202,6 @@ async function initHands() {
     camera.start();
 }
 
-/* ===========================
-   INICIO
-=========================== */
 (async () => {
     await startCamera();
     await initHands();
