@@ -16,6 +16,31 @@ let indexPath = [];
 const MAX_PATH = 40;
 
 /* ===========================
+   RESALTAR GESTO EN PANEL
+=========================== */
+function highlightGesture(gesture) {
+
+    const gesturesMap = {
+        "Avanzar": "g-avanzar",
+        "Detener": "g-detener",
+        "Vuelta derecha": "g-vd",
+        "Vuelta izquierda": "g-vi",
+        "90° derecha": "g-90d",
+        "90° izquierda": "g-90i",
+        "360° derecha": "g-360d",
+        "360° izquierda": "g-360i"
+    };
+
+    document.querySelectorAll(".list-group-item")
+        .forEach(item => item.classList.remove("gesture-active"));
+
+    if (gesturesMap[gesture]) {
+        const element = document.getElementById(gesturesMap[gesture]);
+        if (element) element.classList.add("gesture-active");
+    }
+}
+
+/* ===========================
    INICIAR CÁMARA
 =========================== */
 async function startCamera() {
@@ -39,30 +64,24 @@ function detectGesture(landmarks) {
     const wrist = landmarks[0];
     const indexTip = landmarks[8];
 
-    // 👍 Avanzar
     if (thumbUp && !indexUp && !middleUp && !ringUp && !pinkyUp)
         return "Avanzar";
 
-    // ✋ Detener
     if (thumbUp && indexUp && middleUp && ringUp && pinkyUp)
         return "Detener";
 
-    // 👉 Vuelta derecha
     if (indexUp && !middleUp && !ringUp && !pinkyUp &&
         indexTip.x > wrist.x + 0.15)
         return "Vuelta derecha";
 
-    // 👈 Vuelta izquierda
     if (indexUp && !middleUp && !ringUp && !pinkyUp &&
         indexTip.x < wrist.x - 0.15)
         return "Vuelta izquierda";
 
-    // ✌️ 90° derecha
     if (indexUp && middleUp && !ringUp && !pinkyUp &&
         indexTip.x > wrist.x)
         return "90° derecha";
 
-    // ✌️ 90° izquierda
     if (indexUp && middleUp && !ringUp && !pinkyUp &&
         indexTip.x < wrist.x)
         return "90° izquierda";
@@ -77,7 +96,6 @@ function detectCircularMotion() {
 
     if (indexPath.length < 20) return null;
 
-    // Centro promedio
     let cx = 0, cy = 0;
 
     indexPath.forEach(p => {
@@ -88,7 +106,6 @@ function detectCircularMotion() {
     cx /= indexPath.length;
     cy /= indexPath.length;
 
-    // Ángulo acumulado
     let totalAngle = 0;
 
     for (let i = 1; i < indexPath.length; i++) {
@@ -107,7 +124,6 @@ function detectCircularMotion() {
         totalAngle += delta;
     }
 
-    // Aproximadamente 2π (círculo completo)
     if (Math.abs(totalAngle) > 5.5) {
 
         indexPath = [];
@@ -155,14 +171,14 @@ async function initHands() {
             drawLandmarks(canvasCtx, landmarks,
                 { color: "#FF0000", lineWidth: 2 });
 
-            // Guardar trayectoria del índice
             const indexTip = landmarks[8];
+
             indexPath.push({ x: indexTip.x, y: indexTip.y });
 
             if (indexPath.length > MAX_PATH)
                 indexPath.shift();
 
-            // Detectar círculo primero
+            // Detectar 360 primero
             const circleGesture = detectCircularMotion();
 
             if (circleGesture) {
@@ -170,11 +186,11 @@ async function initHands() {
                 suspended = false;
                 statusText.innerText = "Activo";
                 commandText.innerText = circleGesture;
+                highlightGesture(circleGesture);
                 canvasCtx.restore();
                 return;
             }
 
-            // Detectar posturas normales
             const gesture = detectGesture(landmarks);
 
             if (gesture !== "Orden no reconocida") {
@@ -185,6 +201,7 @@ async function initHands() {
 
             if (!suspended) {
                 commandText.innerText = gesture;
+                highlightGesture(gesture);
             }
         }
 
@@ -194,6 +211,7 @@ async function initHands() {
             statusText.innerText = "Modo suspendido";
             commandText.innerText = "Esperando gesto...";
             indexPath = [];
+            highlightGesture(null);
         }
 
         canvasCtx.restore();
