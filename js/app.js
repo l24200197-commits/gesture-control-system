@@ -10,11 +10,6 @@ let suspended = false;
 const SUSPEND_TIME = 5000;
 
 /* ===========================
-   VARIABLES PARA DETECTAR DESPLAZAMIENTO
-=========================== */
-let previousX = null;
-
-/* ===========================
    RESALTAR GESTO EN PANEL
 =========================== */
 function highlightGesture(gesture) {
@@ -50,11 +45,13 @@ async function startCamera() {
 /* ===========================
    DETECCIÓN DE GESTOS
 =========================== */
-function detectGesture(landmarks) {
+function detectGesture(landmarks, handLabel) {
 
     const fingerUp = (tip, pip) => landmarks[tip].y < landmarks[pip].y;
 
-    const thumbUp  = landmarks[4].y < landmarks[3].y;
+    const thumbUp   = landmarks[4].y < landmarks[3].y;
+    const thumbDown = landmarks[4].y > landmarks[3].y;
+
     const indexUp  = fingerUp(8, 6);
     const middleUp = fingerUp(12, 10);
     const ringUp   = fingerUp(16, 14);
@@ -63,70 +60,43 @@ function detectGesture(landmarks) {
     const wrist = landmarks[0];
     const indexTip = landmarks[8];
 
-    // 👍 Avanzar
-    if (thumbUp && !indexUp && !middleUp && !ringUp && !pinkyUp)
+    // 👎 AVANZAR
+    if (thumbDown && !indexUp && !middleUp && !ringUp && !pinkyUp)
         return "Avanzar";
 
-    // ✋ Detener
+    // ✋ DETENER
     if (thumbUp && indexUp && middleUp && ringUp && pinkyUp)
         return "Detener";
 
-    // 👉 Vuelta derecha
+    // 👉 VUELTA DERECHA
     if (indexUp && !middleUp && !ringUp && !pinkyUp &&
         indexTip.x > wrist.x + 0.15)
         return "Vuelta derecha";
 
-    // 👈 Vuelta izquierda
+    // 👈 VUELTA IZQUIERDA
     if (indexUp && !middleUp && !ringUp && !pinkyUp &&
         indexTip.x < wrist.x - 0.15)
         return "Vuelta izquierda";
 
-    // ✌️ 90° derecha
+    // ✌️ 90° DERECHA
     if (indexUp && middleUp && !ringUp && !pinkyUp &&
         indexTip.x > wrist.x)
         return "90° derecha";
 
-    // ✌️ 90° izquierda
+    // ✌️ 90° IZQUIERDA
     if (indexUp && middleUp && !ringUp && !pinkyUp &&
         indexTip.x < wrist.x)
         return "90° izquierda";
 
-    return null;
-}
+    // 🫱 MANO DERECHA ABIERTA → 360 IZQUIERDA
+    if (thumbUp && indexUp && middleUp && ringUp && pinkyUp &&
+        handLabel === "Right")
+        return "360° izquierda";
 
-/* ===========================
-   DETECTAR 360 POR DESPLAZAMIENTO
-=========================== */
-function detect360(landmarks) {
-
-    const wrist = landmarks[0];
-
-    if (previousX === null) {
-        previousX = wrist.x;
-        return null;
-    }
-
-    const deltaX = wrist.x - previousX;
-    previousX = wrist.x;
-
-    const fingerUp = (tip, pip) => landmarks[tip].y < landmarks[pip].y;
-
-    const thumbUp  = landmarks[4].y < landmarks[3].y;
-    const indexUp  = fingerUp(8, 6);
-    const middleUp = fingerUp(12, 10);
-    const ringUp   = fingerUp(16, 14);
-    const pinkyUp  = fingerUp(20, 18);
-
-    const openHand = thumbUp && indexUp && middleUp && ringUp && pinkyUp;
-
-    if (openHand) {
-
-        if (deltaX > 0.08)
-            return "360° derecha";
-
-        if (deltaX < -0.08)
-            return "360° izquierda";
-    }
+    // 🫲 MANO IZQUIERDA ABIERTA → 360 DERECHA
+    if (thumbUp && indexUp && middleUp && ringUp && pinkyUp &&
+        handLabel === "Left")
+        return "360° derecha";
 
     return null;
 }
@@ -158,6 +128,7 @@ async function initHands() {
         if (results.multiHandLandmarks.length > 0) {
 
             const landmarks = results.multiHandLandmarks[0];
+            const handLabel = results.multiHandedness[0].label;
 
             drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS,
                 { color: "#00FF00", lineWidth: 3 });
@@ -165,11 +136,7 @@ async function initHands() {
             drawLandmarks(canvasCtx, landmarks,
                 { color: "#FF0000", lineWidth: 2 });
 
-            let gesture = detectGesture(landmarks);
-
-            if (!gesture) {
-                gesture = detect360(landmarks);
-            }
+            const gesture = detectGesture(landmarks, handLabel);
 
             if (gesture) {
                 lastGestureTime = Date.now();
@@ -185,7 +152,6 @@ async function initHands() {
             statusText.innerText = "Modo suspendido";
             commandText.innerText = "Esperando gesto...";
             highlightGesture(null);
-            previousX = null;
         }
 
         canvasCtx.restore();
