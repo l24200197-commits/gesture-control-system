@@ -13,7 +13,6 @@ const SUSPEND_TIME = 5000;
    RESALTAR GESTO EN PANEL
 =========================== */
 function highlightGesture(gesture) {
-
     const gesturesMap = {
         "Avanzar": "g-avanzar",
         "Detener": "g-detener",
@@ -28,7 +27,7 @@ function highlightGesture(gesture) {
     document.querySelectorAll(".list-group-item")
         .forEach(item => item.classList.remove("gesture-active"));
 
-    if (gesturesMap[gesture]) {
+    if (gesture && gesturesMap[gesture]) {
         const element = document.getElementById(gesturesMap[gesture]);
         if (element) element.classList.add("gesture-active");
     }
@@ -38,65 +37,63 @@ function highlightGesture(gesture) {
    INICIAR CÁMARA
 =========================== */
 async function startCamera() {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { width: 640, height: 480 } 
+    });
     videoElement.srcObject = stream;
 }
 
 /* ===========================
-   DETECCIÓN DE GESTOS
+   DETECCIÓN DE GESTOS UNIFICADA
 =========================== */
-function detectGesture(landmarks, handLabel) {
 
+function detectGesture(landmarks, handLabel) {
     const fingerUp = (tip, pip) => landmarks[tip].y < landmarks[pip].y;
 
+    // Estado de los dedos
     const thumbUp   = landmarks[4].y < landmarks[3].y;
     const thumbDown = landmarks[4].y > landmarks[3].y;
-
-    const indexUp  = fingerUp(8, 6);
-    const middleUp = fingerUp(12, 10);
-    const ringUp   = fingerUp(16, 14);
-    const pinkyUp  = fingerUp(20, 18);
+    const indexUp   = fingerUp(8, 6);
+    const middleUp  = fingerUp(12, 10);
+    const ringUp    = fingerUp(16, 14);
+    const pinkyUp   = fingerUp(20, 18);
 
     const wrist = landmarks[0];
     const indexTip = landmarks[8];
+    const middleTip = landmarks[12];
 
-    // 👎 AVANZAR
+    // Condición: Todos los dedos extendidos (Palma)
+    const allFingersUp = indexUp && middleUp && ringUp && pinkyUp && thumbUp;
+
+    // --- 1. GESTOS 360 (Palma abierta con mano específica) ---
+    if (allFingersUp) {
+        if (handLabel === "Right") return "360° derecha";
+        if (handLabel === "Left")  return "360° izquierda";
+        return "Detener"; 
+    }
+
+    // --- 2. DETENER (Palma abierta genérica) ---
+    if (indexUp && middleUp && ringUp && pinkyUp)
+        return "Detener";
+
+    // --- 3. AVANZAR (Pulgar abajo 👎) ---
     if (thumbDown && !indexUp && !middleUp && !ringUp && !pinkyUp)
         return "Avanzar";
 
-    // ✋ DETENER
-    if (thumbUp && indexUp && middleUp && ringUp && pinkyUp)
-        return "Detener";
+    // --- 4. 90 GRADOS (Signo de paz ✌️ con dirección) ---
+    if (indexUp && middleUp && !ringUp && !pinkyUp) {
+        const threshold90 = 0.1;
+        // Si el dedo medio está a la derecha de la muñeca
+        if (middleTip.x > wrist.x + threshold90) return "90° derecha";
+        if (middleTip.x < wrist.x - threshold90) return "90° izquierda";
+    }
 
-    // 👉 VUELTA DERECHA
-    if (indexUp && !middleUp && !ringUp && !pinkyUp &&
-        indexTip.x > wrist.x + 0.15)
-        return "Vuelta derecha";
-
-    // 👈 VUELTA IZQUIERDA
-    if (indexUp && !middleUp && !ringUp && !pinkyUp &&
-        indexTip.x < wrist.x - 0.15)
-        return "Vuelta izquierda";
-
-    // ✌️ 90° DERECHA
-    if (indexUp && middleUp && !ringUp && !pinkyUp &&
-        indexTip.x > wrist.x)
-        return "90° derecha";
-
-    // ✌️ 90° IZQUIERDA
-    if (indexUp && middleUp && !ringUp && !pinkyUp &&
-        indexTip.x < wrist.x)
-        return "90° izquierda";
-
-    // 🫱 MANO DERECHA ABIERTA → 360 IZQUIERDA
-    if (thumbUp && indexUp && middleUp && ringUp && pinkyUp &&
-        handLabel === "Right")
-        return "360° izquierda";
-
-    // 🫲 MANO IZQUIERDA ABIERTA → 360 DERECHA
-    if (thumbUp && indexUp && middleUp && ringUp && pinkyUp &&
-        handLabel === "Left")
-        return "360° derecha";
+    // --- 5. VUELTAS (Solo índice apuntando 👉 / 👈) ---
+    if (indexUp && !middleUp && !ringUp && !pinkyUp) {
+        const thresholdVuelta = 0.12; 
+        if (indexTip.x > wrist.x + thresholdVuelta) return "Vuelta derecha";
+        if (indexTip.x < wrist.x - thresholdVuelta) return "Vuelta izquierda";
+    }
 
     return null;
 }
@@ -105,36 +102,32 @@ function detectGesture(landmarks, handLabel) {
    INICIALIZAR MEDIAPIPE
 =========================== */
 async function initHands() {
-
     const hands = new Hands({
-        locateFile: file =>
-            `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
     });
 
     hands.setOptions({
         maxNumHands: 1,
         modelComplexity: 1,
-        minDetectionConfidence: 0.7,
-        minTrackingConfidence: 0.7
+        minDetectionConfidence: 0.8,
+        minTrackingConfidence: 0.8,
+        selfieMode: true // La cámara actúa como espejo para que sea intuitivo
     });
 
     hands.onResults(results => {
-
         canvasCtx.save();
         canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-        canvasCtx.drawImage(results.image, 0, 0,
-            canvasElement.width, canvasElement.height);
+        
+        // Dibujamos el frame de video (ya espejado por selfieMode)
+        canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-        if (results.multiHandLandmarks.length > 0) {
-
+        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
             const landmarks = results.multiHandLandmarks[0];
-            const handLabel = results.multiHandedness[0].label;
+            const handLabel = results.multiHandedness[0].label; // "Left" o "Right"
 
-            drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS,
-                { color: "#00FF00", lineWidth: 1 });
-
-            drawLandmarks(canvasCtx, landmarks,
-                { color: "#FF0000", lineWidth: 2 });
+            // Dibujar el esqueleto verde sobre la mano
+            drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: "#00FF00", lineWidth: 2 });
+            drawLandmarks(canvasCtx, landmarks, { color: "#FF0000", lineWidth: 1 });
 
             const gesture = detectGesture(landmarks, handLabel);
 
@@ -147,6 +140,7 @@ async function initHands() {
             }
         }
 
+        // Sistema de ahorro/suspensión
         if (Date.now() - lastGestureTime > SUSPEND_TIME) {
             suspended = true;
             statusText.innerText = "Modo suspendido";
@@ -168,6 +162,9 @@ async function initHands() {
     camera.start();
 }
 
+/* ===========================
+   ARRANQUE DEL SISTEMA
+=========================== */
 (async () => {
     await startCamera();
     await initHands();
